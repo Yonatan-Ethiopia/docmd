@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat to Markdown Converter</title>
+    <script src="turndown.js"></script>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
+        .container { max-width: 600px; width: 100%; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        h1 { font-size: 1.5rem; color: #1e293b; margin-bottom: 1rem; }
+        .drop-zone { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: 0.2s; }
+        .drop-zone:hover { border-color: var(--primary); background: #f0f9ff; }
+        #fileInput { display: none; }
+        .btn { display: inline-block; margin-top: 20px; background: var(--primary); color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; }
+        #status { margin-top: 15px; font-size: 0.9rem; color: #64748b; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>AI Chat → Markdown</h1>
+        <p>Upload the <b>.html</b> file you saved from your chat.</p>
+        
+        <label for="fileInput" class="drop-zone" id="dropZone">
+            <span>Click to upload or drag & drop HTML file</span>
+            <input type="file" id="fileInput" accept=".html">
+        </label>
+
+        <div id="status"></div>
+        <button id="downloadBtn" class="btn" style="display: none;">Download Markdown (.md)</button>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const downloadBtn = document.getElementById('downloadBtn');
+        let convertedMarkdown = "";
+
+        // 1. Initialize Turndown with proper rules
+        const turndownService = new TurndownService({
+            headingStyle: 'atx',
+            codeBlockStyle: 'fenced',
+            hr: '---'
+        });
+
+        fileInput.addEventListener('change', handleFile);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.innerText = "Processing file...";
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                try {
+                    const htmlContent = event.target.result;
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlContent, 'text/html');
+                    
+                    // 2. Core Parser Logic
+                    const messages = doc.querySelectorAll('div[data-message-author-role]');
+                    let mdOutput = "";
+
+                    if (messages.length === 0) {
+                        status.innerText = "Error: No messages found. Are you sure this is a saved chat page?";
+                        return;
+                    }
+
+                    messages.forEach(msg => {
+                        const role = msg.getAttribute('data-message-author-role').toUpperCase();
+                        // Target common content wrappers
+                        const content = msg.querySelector('.markdown, .prose, .whitespace-pre-wrap');
+                        
+                        if (content) {
+                            const md = turndownService.turndown(content.innerHTML);
+                            mdOutput += `### ${role}\n\n${md}\n\n---\n\n`;
+                        }
+                    });
+
+                    convertedMarkdown = mdOutput;
+                    status.innerText = `Successfully converted ${messages.length} messages!`;
+                    downloadBtn.style.display = "inline-block";
+                } catch (err) {
+                    status.innerText = "Error parsing file.";
+                    console.error(err);
+                }
+            };
+
+            reader.readAsText(file);
+        }
+
+        // 3. Download Logic
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([convertedMarkdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `chat-export-${Date.now()}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+    </script>
+</body>
+</html>
