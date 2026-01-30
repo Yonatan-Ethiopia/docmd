@@ -40,9 +40,10 @@ let convertedMarkdown = "";
 
 const turndownService = new TurndownService({
     headingStyle: 'atx',
-    codeBlockStyle: 'fenced',
-    hr: '---'
+    codeBlockStyle: 'fenced'
 });
+// This line tells Turndown to skip <hr> tags
+turndownService.remove('hr');
 
 // --- NEW: LLM API Helper ---
 async function ideaBoundary(currentMessage, previousSection, intentPoints) {
@@ -140,8 +141,8 @@ async function handleFile(e) {
                             mdOutput += `\n## ${result.subsection_title}\n\n`;
                         }
                     }
-
                     
+                    mdOutput += `${md}\n\n`;
                 }
             }
 
