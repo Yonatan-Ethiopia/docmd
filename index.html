@@ -34,63 +34,128 @@
 
     <script>
         const fileInput = document.getElementById('fileInput');
-        const status = document.getElementById('status');
-        const downloadBtn = document.getElementById('downloadBtn');
-        let convertedMarkdown = "";
+const status = document.getElementById('status');
+const downloadBtn = document.getElementById('downloadBtn');
+let convertedMarkdown = "";
 
-        // 1. Initialize Turndown with proper rules
-        const turndownService = new TurndownService({
-            headingStyle: 'atx',
-            codeBlockStyle: 'fenced',
-            hr: '---'
+const turndownService = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    hr: '---'
+});
+
+// --- NEW: LLM API Helper ---
+async function ideaBoundary(currentMessage, previousSection, intentPoints) {
+    const jokeing = "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"; // Keep this safe!
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+
+    const prompt = `
+Current section title: ${previousSection}
+New user message: ${currentMessage}
+Intent_points: ${JSON.stringify(intentPoints)}
+
+Respond using exactly this JSON schema:
+{
+  "decision": "NEW_TOPIC | CONTINUE_TOPIC",
+  "section_title": "string",
+  "subsection_title": "string",
+  "intent_points": ["string"]
+}
+    `;
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${jokeing}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                messages: [
+                    { role: "system", content: "You are an indexing engine. Return ONLY valid JSON." },
+                    { role: "user", content: prompt }
+                ],
+                response_format: { type: "json_object" }
+            })
         });
 
-        fileInput.addEventListener('change', handleFile);
+        const data = await response.json();
+        return JSON.parse(data.choices[0].message.content);
+    } catch (e) {
+        console.error("LLM Error:", e);
+        return { decision: "NEW_TOPIC", section_title: "General Chat", subsection_title: null, intent_points: [] };
+    }
+}
 
-        function handleFile(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+fileInput.addEventListener('change', handleFile);
 
-            status.innerText = "Processing file...";
-            const reader = new FileReader();
+// --- UPDATED: Async File Handler ---
+async function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
 
-            reader.onload = function(event) {
-                try {
-                    const htmlContent = event.target.result;
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(htmlContent, 'text/html');
+    status.innerText = "Processing file and analyzing sections...";
+    const reader = new FileReader();
+
+    reader.onload = async function(event) {
+        try {
+            const htmlContent = event.target.result;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, 'text/html');
+            
+            const messages = doc.querySelectorAll('div[data-message-author-role]');
+            let mdOutput = "";
+
+            if (messages.length === 0) {
+                status.innerText = "Error: No messages found.";
+                return;
+            }
+
+            // --- NEW: State Management ---
+            let lastSection = "Introduction";
+            let currentIntents = [];
+
+            // IMPORTANT: Use for...of for async support
+            for (const [index, msg] of messages.entries()) {
+                const role = msg.getAttribute('data-message-author-role').toUpperCase();
+                const content = msg.querySelector('.markdown, .prose, .whitespace-pre-wrap');
+                
+                if (content) {
+                    const md = turndownService.turndown(content.innerHTML);
                     
-                    // 2. Core Parser Logic
-                    const messages = doc.querySelectorAll('div[data-message-author-role]');
-                    let mdOutput = "";
+                    if (role === 'USER') {
+                        status.innerText = `Analyzing message ${index + 1} of ${messages.length}...`;
+                        
+                        const result = await ideaBoundary(md, lastSection, currentIntents);
+                        
+                        // Update our state
+                        lastSection = result.section_title || lastSection;
+                        currentIntents = result.intent_points;
 
-                    if (messages.length === 0) {
-                        status.innerText = "Error: No messages found. Are you sure this is a saved chat page?";
-                        return;
+                        // Insert headers based on LLM decision
+                        if (result.decision === "NEW_TOPIC") {
+                            mdOutput += `\n# ${result.section_title}\n\n`;
+                        } else if (result.subsection_title) {
+                            mdOutput += `\n## ${result.subsection_title}\n\n`;
+                        }
                     }
 
-                    messages.forEach(msg => {
-                        const role = msg.getAttribute('data-message-author-role').toUpperCase();
-                        // Target common content wrappers
-                        const content = msg.querySelector('.markdown, .prose, .whitespace-pre-wrap');
-                        
-                        if (content) {
-                            const md = turndownService.turndown(content.innerHTML);
-                            mdOutput += `### ${role}\n\n${md}\n\n---\n\n`;
-                        }
-                    });
-
-                    convertedMarkdown = mdOutput;
-                    status.innerText = `Successfully converted ${messages.length} messages!`;
-                    downloadBtn.style.display = "inline-block";
-                } catch (err) {
-                    status.innerText = "Error parsing file.";
-                    console.error(err);
+                    mdOutput += `### ${role}\n\n${md}\n\n---\n\n`;
                 }
-            };
+            }
 
-            reader.readAsText(file);
+            convertedMarkdown = mdOutput;
+            status.innerText = `Successfully converted ${messages.length} messages with LLM indexing!`;
+            downloadBtn.style.display = "inline-block";
+        } catch (err) {
+            status.innerText = "Error parsing file.";
+            console.error(err);
         }
+    };
+
+    reader.readAsText(file);
+}
 
         // 3. Download Logic
         downloadBtn.addEventListener('click', () => {
