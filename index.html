@@ -141,7 +141,7 @@ async function handleFile(e) {
                             mdOutput += `\n## ${result.subsection_title}\n\n`;
                         }
                     }
-                    
+                    console.log("Adding content for role:", role, "Content length:", md.length);
                     mdOutput += `${md}\n\n`;
                 }
             }
