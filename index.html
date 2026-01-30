@@ -43,7 +43,10 @@ const turndownService = new TurndownService({
     codeBlockStyle: 'fenced'
 });
 // This line tells Turndown to skip <hr> tags
-turndownService.remove('hr');
+turndownService.addRule('ignoreHR', {
+    filter: 'hr',
+    replacement: () => '\n'
+});
 
 // --- NEW: LLM API Helper ---
 async function ideaBoundary(currentMessage, previousSection, intentPoints) {
