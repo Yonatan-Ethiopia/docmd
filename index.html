@@ -99,64 +99,65 @@ async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    status.innerText = "Processing file and analyzing sections...";
-    const reader = new FileReader();
+    status.innerText = "Processing...";
+    
+    // We wrap the reader in a Promise so we can 'await' the whole thing
+    const htmlContent = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result);
+        reader.readAsText(file);
+    });
 
-    reader.onload = async function(event) {
-        try {
-            const htmlContent = event.target.result;
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlContent, 'text/html');
-            
-            const messages = doc.querySelectorAll('div[data-message-author-role]');
-            let mdOutput = "";
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        const messages = doc.querySelectorAll('div[data-message-author-role]');
+        let mdOutput = "";
 
-            if (messages.length === 0) {
-                status.innerText = "Error: No messages found.";
-                return;
-            }
-
-            // --- NEW: State Management ---
-            let lastSection = "Introduction";
-            let currentIntents = [];
-
-            // IMPORTANT: Use for...of for async support
-            for (const [index, msg] of messages.entries()) {
-                const role = msg.getAttribute('data-message-author-role').toUpperCase();
-                const content = msg.querySelector('.markdown, .prose, .whitespace-pre-wrap');
-                
-                if (content) {
-                    const md = turndownService.turndown(content.innerHTML);
-                    
-                    if (role === 'USER') {
-                        status.innerText = `Analyzing message ${index + 1} of ${messages.length}...`;
-                        
-                        const result = await ideaBoundary(md, lastSection, currentIntents);
-                        
-                        // Update our state
-                        lastSection = result.section_title || lastSection;
-                        currentIntents = result.intent_points;
-
-                        // Insert headers based on LLM decision
-                        if (result.decision === "NEW_TOPIC") {
-                            mdOutput += `\n# ${result.section_title}\n\n`;
-                        } else if (result.subsection_title) {
-                            mdOutput += `\n## ${result.subsection_title}\n\n`;
-                        }
-                    }
-                    console.log("Adding content for role:", role, "Content length:", md.length);
-                    mdOutput += `${md}\n\n`;
-                }
-            }
-
-            convertedMarkdown = mdOutput;
-            status.innerText = `Successfully converted ${messages.length} messages with LLM indexing!`;
-            downloadBtn.style.display = "inline-block";
-        } catch (err) {
-            status.innerText = "Error parsing file.";
-            console.error(err);
+        if (messages.length === 0) {
+            status.innerText = "Error: No messages found.";
+            return;
         }
-    };
+
+        let lastSection = "Introduction";
+        let currentIntents = [];
+
+        // Now the await inside this loop will work perfectly
+        for (const [index, msg] of messages.entries()) {
+            const role = msg.getAttribute('data-message-author-role').toUpperCase();
+            const content = msg.querySelector('.markdown, .prose, .whitespace-pre-wrap');
+            
+            if (content) {
+                const md = turndownService.turndown(content.innerHTML);
+                
+                if (role === 'USER') {
+                    status.innerText = `Analyzing message ${index + 1} of ${messages.length}...`;
+                    const result = await ideaBoundary(md, lastSection, currentIntents);
+                    
+                    lastSection = result.section_title || lastSection;
+                    currentIntents = result.intent_points;
+
+                    if (result.decision === "NEW_TOPIC") {
+                        mdOutput += `\n# ${result.section_title}\n\n`;
+                    } else if (result.subsection_title) {
+                        mdOutput += `\n## ${result.subsection_title}\n\n`;
+                    }
+                }
+                
+                // This will now correctly append the content
+                mdOutput += `${md}\n\n`;
+            }
+        }
+
+        convertedMarkdown = mdOutput;
+        status.innerText = "Conversion complete!";
+        downloadBtn.style.display = "inline-block";
+
+    } catch (err) {
+        status.innerText = "Error parsing file.";
+        console.error(err);
+    }
+}
 
     reader.readAsText(file);
 }
